@@ -84,7 +84,11 @@ if __name__ == '__main__':
         dict_users = cifar_iid(dataset_train, args.num_users)
     else:
         dict_users, _ = cifar_noniid(dataset_train, args.num_users, args.alpha)
+<<<<<<< HEAD
         # for k, v in dict_users.items():
+=======
+        for k, v in dict_users.items():
+>>>>>>> 77ca39771d5a384017dd8b6caad732b7d34bf732
             # writer.add_histogram(f'user_{k}/data_distribution',
             #                      np.array(dataset_train.targets)[v],
             #                      bins=np.arange(11))

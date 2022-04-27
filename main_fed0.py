@@ -15,51 +15,13 @@ from models.Fed import FedAvg
 from models.Test import test_img
 from utils.util import setup_seed
 from datetime import datetime
-# from torch.utils.tensorboard import SummaryWriter
-import os 
+from torch.utils.tensorboard import SummaryWriter
+
 import pickle
 import _pickle as cPickle
 import os
 import time
 
-import asyncio
-from kademlia.network import Server
-import json
-import codecs
-import lzma
-import sys
-import subprocess
-
-
-
-async def set_value(file_name_w, file_name_loss, w, loss):
-    # Create a node and start listening on port 5678
-    node = Server()
-    await node.listen(8460)
-    await node.bootstrap([("128.32.37.74", 8460)])
-
-    # set a value for the key on the network
-    w_pickled = codecs.encode(pickle.dumps(w), "base64").decode()
-    print(type(w_pickled))
-
-
-    with lzma.open("lmza_test.xz", "wb") as w_file:
-        pickle.dump(w, w_file)
-
-    print("w_pickled size::::: ", sys.getsizeof(w_pickled))
-    print("w_file size::::: ", sys.getsizeof(w_file))
-
-    w = pickle.loads(codecs.decode(w_pickled.encode(), "base64"))
-    
-    open_file = lzma.open("lmza_test.xz",'rb')
-    lzma_w = pickle.load(open_file)
-    open_file.close()
-
-    print("loaded from regular pickle:::::", w)
-    print("loaded from lzma pickle::::: ", lzma_w)
-    
-    await node.set(file_name_w, w_pickled)
-    await node.set(file_name_loss, loss)
 
 if __name__ == '__main__':
     # parse args
@@ -73,7 +35,7 @@ if __name__ == '__main__':
                                                            args.alpha, args.num_users, current_time)
     # TAG = f'alpha_{alpha}/data_distribution'
     logdir = f'runs/{TAG}' if not args.debug else f'runs2/{TAG}'
-    # writer = SummaryWriter(logdir)
+    writer = SummaryWriter(logdir)
 
     # load dataset and split users
     if args.dataset == 'mnist':
@@ -123,6 +85,13 @@ if __name__ == '__main__':
         dict_users = cifar_iid(dataset_train, args.num_users)
     else:
         dict_users, _ = cifar_noniid(dataset_train, args.num_users, args.alpha)
+        for k, v in dict_users.items():
+            writer.add_histogram(f'user_{k}/data_distribution',
+                                 np.array(dataset_train.targets)[v],
+                                 bins=np.arange(11))
+            writer.add_histogram(f'all_user/data_distribution',
+                                 np.array(dataset_train.targets)[v],
+                                 bins=np.arange(11), global_step=k)
 
     # build model
     if args.model == 'lenet' and (args.dataset == 'cifar' or args.dataset == 'fmnist'):
@@ -150,6 +119,9 @@ if __name__ == '__main__':
     if not os.path.exists("comm_folder"):
         os.mkdir("comm_folder")
     for iter in range(args.epochs):
+        # w_locals, loss_locals = [], []
+        # m = max(int(args.frac * args.num_users), 1)
+        # idxs_users = np.random.choice(range(10), m, replace=False)
         idxs_users = list(range(2))
         if glob_counter == 21:
             break
@@ -167,80 +139,60 @@ if __name__ == '__main__':
                 raise ValueError("%s isn't a file!" % glob_file_name)
         
         local_counter = 0
-
-        for idx in idxs_users:
             
-            local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
-            w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
+        local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[0])
+        w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
 
-            file_name_w = "comm_folder/" + "w" + str(glob_counter) + "_" + str(local_counter)
-            file_name_loss = "comm_folder/" + "loss" + str(glob_counter) + "_" + str(local_counter)
-
-
-            # with open(file_name_loss, "wb") as output_file:
-            #     cPickle.dump(loss, output_file)
-            # set a value for the key "my-key" on the network
-            # asyncio.run(set_value(file_name_w, file_name_loss, w, loss))
-
-            # w_pickled = codecs.encode(pickle.dumps(w), "base64").decode()
-            # print("w_pickled size::::: ", sys.getsizeof(w_pickled))
-
-            with lzma.open(file_name_w + ".xz", "wb") as w_file:
-               pickle.dump(w, w_file)
-            # with open(file_name_w + ".xz", "wb") as w_file:
-            #     pickle.dump(w, w_file)
-
-            if not os.path.exists("comm_folder"):
-                os.mkdir("comm_folder")
-
-            print("subprocess:::", subprocess.check_output(['python3', 'kademlia/examples/set.py', '128.32.37.74','8460', file_name_w + ".xz", "w_place_holder"]))
-
-            # with open(file_name_w, "wb") as output_file:
-	        #     cPickle.dump(w, output_file)
-            # with open(file_name_loss, "wb") as output_file:
-            #     cPickle.dump(loss, output_file)
-            # set a value for the key "my-key" on the network
-            asyncio.run(set_value(file_name_w, file_name_loss, w, loss))
-
-
-            local_counter += 1 
+        file_name_w = "comm_folder/" + "w" + str(glob_counter) + "_" + str(local_counter)
+        file_name_loss = "comm_folder/" + "loss" + str(glob_counter) + "_" + str(local_counter)
+        with open(file_name_w, "wb") as output_file:
+            cPickle.dump(w, output_file)
+        with open(file_name_loss, "wb") as output_file:
+            cPickle.dump(loss, output_file)
+        # w_locals.append(w)
+        # loss_locals.append(loss)
 
         
         glob_counter += 1
-    
+            
+        # update global weights
+        # w_glob = FedAvg(w_locals)
 
+        # copy weight to net_glob
+        # net_glob.load_state_dict(w_glob)
 
+        # print loss
+        # loss_avg = sum(loss_locals) / len(loss_locals)
+        # print('Round {:3d}, Train loss {:.3f}'.format(iter, loss_avg))
+        # loss_train.append(loss_avg)
+        # writer.add_scalar('train_loss', loss_avg, iter)
+        # test_acc, test_loss = test_img(net_glob, dataset_test, args)
+        # writer.add_scalar('test_loss', test_loss, iter)
+        # writer.add_scalar('test_acc', test_acc, iter)
 
-async def set_value(file_name_w, file_name_loss, w, loss):
-    # Create a node and start listening on port 5678
-    node = Server()
-    await node.listen(8460)
-    await node.bootstrap([("128.32.37.74", 8460)])
+        # save_info = {
+        #    "model": net_glob.state_dict(),
+        #    "epoch": iter
+        # }
+        # save model weights
+        # if (iter+1) % 500 == 0:
+        #    save_path = f'./save2/{TAG}_{iter+1}es' if args.debug else f'./save/{TAG}_{iter+1}es'
+        #    torch.save(save_info, save_path)
+        #if iter > 100 and test_acc > test_best_acc:
+        #    test_best_acc = test_acc
+        #    save_path = f'./save2/{TAG}_bst' if args.debug else f'./save/{TAG}_bst'
+        #    torch.save(save_info, save_path)
 
-    # set a value for the key on the network
-    w_pickled = codecs.encode(pickle.dumps(w), "base64").decode()
-    print(type(w_pickled))
+    # plot loss curve
+    # plt.figure()
+    # plt.plot(range(len(loss_train)), loss_train)
+    # plt.ylabel('train_loss')
+    # plt.savefig('./save/fed_{}_{}_{}_C{}_iid{}.png'.format(args.dataset, args.model, args.epochs, args.frac, args.iid))
 
-    with lzma.open("lmza_test.xz", "wb") as w_file:
-        pickle.dump(w, w_file)
-
-    print("w_pickled size::::: ", sys.getsizeof(w_pickled))
-    print("w_file size::::: ", sys.getsizeof(w_file))
-
-    w = pickle.loads(codecs.decode(w_pickled.encode(), "base64"))
-    
-    open_file = lzma.open("lmza_test.xz",'rb')
-    lzma_w = pickle.load(open_file)
-    open_file.close()
-
-    print("loaded from regular pickle:::::", w)
-    print("loaded from lzma pickle::::: ", lzma_w)
-    
-
-
-    await node.set(file_name_w, w_pickled)
-    await node.set(file_name_loss, loss)
-
-
-
-
+    # testing
+    # net_glob.eval()
+    # acc_train, loss_train = test_img(net_glob, dataset_train, args)
+    # acc_test, loss_test = test_img(net_glob, dataset_test, args)
+    # print("Training accuracy: {:.2f}".format(acc_train))
+    # print("Testing accuracy: {:.2f}".format(acc_test))
+    # writer.close()
