@@ -15,6 +15,7 @@ from models.Fed import FedAvg
 from models.Test import test_img
 from utils.util import setup_seed
 from datetime import datetime
+from torch.utils.tensorboard import SummaryWriter
 
 import pickle
 import _pickle as cPickle
@@ -34,7 +35,7 @@ if __name__ == '__main__':
                                                            args.alpha, args.num_users, current_time)
     # TAG = f'alpha_{alpha}/data_distribution'
     logdir = f'runs/{TAG}' if not args.debug else f'runs2/{TAG}'
-    # writer = SummaryWriter(logdir)
+    writer = SummaryWriter(logdir)
 
     # load dataset and split users
     if args.dataset == 'mnist':
@@ -85,12 +86,12 @@ if __name__ == '__main__':
     else:
         dict_users, _ = cifar_noniid(dataset_train, args.num_users, args.alpha)
         for k, v in dict_users.items():
-            # writer.add_histogram(f'user_{k}/data_distribution',
-            #                      np.array(dataset_train.targets)[v],
-            #                      bins=np.arange(11))
-            # writer.add_histogram(f'all_user/data_distribution',
-            #                      np.array(dataset_train.targets)[v],
-            #                      bins=np.arange(11), global_step=k)
+            writer.add_histogram(f'user_{k}/data_distribution',
+                                 np.array(dataset_train.targets)[v],
+                                 bins=np.arange(11))
+            writer.add_histogram(f'all_user/data_distribution',
+                                 np.array(dataset_train.targets)[v],
+                                 bins=np.arange(11), global_step=k)
 
     # build model
     if args.model == 'lenet' and (args.dataset == 'cifar' or args.dataset == 'fmnist'):
@@ -138,20 +139,18 @@ if __name__ == '__main__':
                 raise ValueError("%s isn't a file!" % glob_file_name)
         
         local_counter = 0
-        for idx in idxs_users:
             
-            local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
-            w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
+        local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[0])
+        w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
 
-            file_name_w = "comm_folder/" + "w" + str(glob_counter) + "_" + str(local_counter)
-            file_name_loss = "comm_folder/" + "loss" + str(glob_counter) + "_" + str(local_counter)
-            with open(file_name_w, "wb") as output_file:
-	            cPickle.dump(w, output_file)
-            with open(file_name_loss, "wb") as output_file:
-                cPickle.dump(loss, output_file)
-            # w_locals.append(w)
-            # loss_locals.append(loss)
-            local_counter += 1 
+        file_name_w = "comm_folder/" + "w" + str(glob_counter) + "_" + str(local_counter)
+        file_name_loss = "comm_folder/" + "loss" + str(glob_counter) + "_" + str(local_counter)
+        with open(file_name_w, "wb") as output_file:
+            cPickle.dump(w, output_file)
+        with open(file_name_loss, "wb") as output_file:
+            cPickle.dump(loss, output_file)
+        # w_locals.append(w)
+        # loss_locals.append(loss)
 
         
         glob_counter += 1

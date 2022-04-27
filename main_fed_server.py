@@ -15,12 +15,17 @@ from models.Fed import FedAvg
 from models.Test import test_img
 from utils.util import setup_seed
 from datetime import datetime
+# from torch.utils.tensorboard import SummaryWriter
 
 import pickle
 import _pickle as cPickle
-import os
+import os 
 import time
+from datetime import datetime
 
+dt = datetime.now()
+ts = datetime.timestamp(dt)
+print(ts)
 
 if __name__ == '__main__':
     # parse args
@@ -113,76 +118,88 @@ if __name__ == '__main__':
     best_loss = None
     val_acc_list, net_list = [], []
     test_best_acc = 0.0
+    
 
     glob_counter = 0
     if not os.path.exists("comm_folder"):
         os.mkdir("comm_folder")
     for iter in range(args.epochs):
-        # w_locals, loss_locals = [], []
-        # m = max(int(args.frac * args.num_users), 1)
-        # idxs_users = np.random.choice(range(10), m, replace=False)
-        idxs_users = list(range(2))
+        w_locals, loss_locals = [], []
+        #m = max(int(args.frac * args.num_users), 1)
+        #idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         if glob_counter == 21:
             break
-        
-        # load net_glob
-        glob_file_name = "comm_folder/" +  "glob" + str(glob_counter)
-        if glob_counter != 0:
-            while not os.path.exists(glob_file_name):
-                time.sleep(1)
-            if os.path.isfile(glob_file_name):
-                with open(glob_file_name, "rb") as input_file:
-                    net_glob = cPickle.load(input_file)
-                    print(glob_file_name)
-            else:
-                raise ValueError("%s isn't a file!" % glob_file_name)
-        
+
+        idxs_users = list(range(2))
         local_counter = 0
-        for idx in idxs_users:
-            
-            local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
-            w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
-
+        for inx in idxs_users:
             file_name_w = "comm_folder/" + "w" + str(glob_counter) + "_" + str(local_counter)
-            file_name_loss = "comm_folder/" + "loss" + str(glob_counter) + "_" + str(local_counter)
-            with open(file_name_w, "wb") as output_file:
-	            cPickle.dump(w, output_file)
-            with open(file_name_loss, "wb") as output_file:
-                cPickle.dump(loss, output_file)
-            # w_locals.append(w)
-            # loss_locals.append(loss)
-            local_counter += 1 
+            file_name_loss = "comm_folder/" +  "loss" + str(glob_counter) + "_" +  str(local_counter)
 
-        
+            # load w
+            while not os.path.exists(file_name_w):
+                time.sleep(1)
+            if os.path.isfile(file_name_w):
+                with open(file_name_w, "rb") as input_file:
+                    w_local  = cPickle.load(input_file)
+            else:
+                raise ValueError("%s isn't a file!" % file_name_w)
+
+            # load loss
+            while not os.path.exists(file_name_loss):
+                time.sleep(1)
+            if os.path.isfile(file_name_loss):
+                with open(file_name_loss, "rb") as input_file:
+                    loss_local = cPickle.load(input_file)
+            else:
+                raise ValueError("%s isn't a file!" % file_name_loss)
+
+            w_locals.append(w_local)
+            loss_locals.append(loss_local)
+            local_counter += 1 
+	    
         glob_counter += 1
-            
         # update global weights
-        # w_glob = FedAvg(w_locals)
+        w_glob = FedAvg(w_locals)
+        # print(w_local)
+
 
         # copy weight to net_glob
-        # net_glob.load_state_dict(w_glob)
+        net_glob.load_state_dict(w_glob)
 
         # print loss
-        # loss_avg = sum(loss_locals) / len(loss_locals)
-        # print('Round {:3d}, Train loss {:.3f}'.format(iter, loss_avg))
-        # loss_train.append(loss_avg)
+        loss_avg = sum(loss_locals) / len(loss_locals)
+        print('Round {:3d}, Train loss {:.3f}'.format(iter, loss_avg))
+
+        dt_epoch = datetime.now()
+        ts_epoch = datetime.timestamp(dt_epoch)
+        print("Timestamp: ", ts_epoch)
+        print("Time past since start running: ", ts_epoch-ts)
+
+        loss_train.append(loss_avg)
         # writer.add_scalar('train_loss', loss_avg, iter)
-        # test_acc, test_loss = test_img(net_glob, dataset_test, args)
+        test_acc, test_loss = test_img(net_glob, dataset_test, args)
         # writer.add_scalar('test_loss', test_loss, iter)
         # writer.add_scalar('test_acc', test_acc, iter)
 
-        # save_info = {
-        #    "model": net_glob.state_dict(),
-        #    "epoch": iter
-        # }
+        save_info = {
+            "model": net_glob.state_dict(),
+            "epoch": iter
+        }
         # save model weights
-        # if (iter+1) % 500 == 0:
-        #    save_path = f'./save2/{TAG}_{iter+1}es' if args.debug else f'./save/{TAG}_{iter+1}es'
-        #    torch.save(save_info, save_path)
-        #if iter > 100 and test_acc > test_best_acc:
-        #    test_best_acc = test_acc
-        #    save_path = f'./save2/{TAG}_bst' if args.debug else f'./save/{TAG}_bst'
-        #    torch.save(save_info, save_path)
+        if (iter+1) % 500 == 0:
+            save_path = f'./save2/{TAG}_{iter+1}es' if args.debug else f'./save/{TAG}_{iter+1}es'
+            torch.save(save_info, save_path)
+        if iter > 100 and test_acc > test_best_acc:
+            test_best_acc = test_acc
+            save_path = f'./save2/{TAG}_bst' if args.debug else f'./save/{TAG}_bst'
+            torch.save(save_info, save_path)
+
+        # save net_glob
+        glob_file_name = "comm_folder/" + "glob" + str(glob_counter)
+        with open(glob_file_name, "wb") as output_file:
+            cPickle.dump(net_glob, output_file)  
+  
 
     # plot loss curve
     # plt.figure()
@@ -191,9 +208,14 @@ if __name__ == '__main__':
     # plt.savefig('./save/fed_{}_{}_{}_C{}_iid{}.png'.format(args.dataset, args.model, args.epochs, args.frac, args.iid))
 
     # testing
-    # net_glob.eval()
-    # acc_train, loss_train = test_img(net_glob, dataset_train, args)
-    # acc_test, loss_test = test_img(net_glob, dataset_test, args)
-    # print("Training accuracy: {:.2f}".format(acc_train))
-    # print("Testing accuracy: {:.2f}".format(acc_test))
+    net_glob.eval()
+    acc_train, loss_train = test_img(net_glob, dataset_train, args)
+    acc_test, loss_test = test_img(net_glob, dataset_test, args)
+    print("Training accuracy: {:.2f}".format(acc_train))
+    print("Testing accuracy: {:.2f}".format(acc_test))
+
+    dt_last = datetime.now()
+    ts_last = datetime.timestamp(dt_last)
+    print("Timestamp:" , ts_last)
+    print("Time past since start running: ", ts_last-ts)
     # writer.close()
